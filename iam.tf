@@ -1,5 +1,5 @@
 resource "aws_iam_role" "eks-role" {
-  name               = "eks-cluster-example"
+  name               = "eks-cluster-role"
   assume_role_policy = jsonencode({
     Version   = "2012-10-17"
     Statement = [
@@ -54,4 +54,68 @@ resource "aws_iam_role_policy_attachment" "AmazonEKS_CNI_Policy" {
 resource "aws_iam_role_policy_attachment" "AmazonEC2ContainerRegistryReadOnly" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
   role       = aws_iam_role.node-role.name
+}
+
+resource "aws_iam_policy" "sa-policy" {
+  name        = "eks-${var.env}-ssm-pm-policy"
+  path        = "/"
+  description = "eks-${var.env}-ssm-pm-policy"
+
+  policy = jsonencode({
+    "Version" : "2012-10-17",
+    "Statement" : [
+      {
+        "Sid" : "VisualEditor0",
+        "Effect" : "Allow",
+        "Action" : [
+          "kms:Decrypt",
+          "ssm:GetParameterHistory",
+          "ssm:GetParametersByPath",
+          "ssm:GetParameters",
+          "ssm:GetParameter"
+        ],
+        "Resource" : [
+          "arn:aws:ssm:us-east-1:178724175855:parameter/roboshop.*",
+          "arn:aws:kms:us-east-1:178724175855:key/f0a71b80-90c3-4da1-a189-b4b95e9764e8"
+        ]
+      },
+      {
+        "Sid" : "VisualEditor1",
+        "Effect" : "Allow",
+        "Action" : "ssm:DescribeParameters",
+        "Resource" : "*"
+      }
+    ]
+  })
+}
+
+## Iam Role
+
+resource "aws_iam_role" "sa-role" {
+  name = "eks-${var.env}-ssm-pm-role"
+
+  assume_role_policy = jsonencode({
+    "Version" : "2012-10-17",
+    "Statement" : [
+      {
+        "Effect" : "Allow",
+        "Action" : "sts:AssumeRoleWithWebIdentity",
+        "Principal" : {
+          "Federated" : aws_iam_openid_connect_provider.cluster.arn
+        },
+        "Condition" : {
+          "StringEquals" : {
+            "oidc.eks.us-east-1.amazonaws.com/id/${element(split("/", aws_iam_openid_connect_provider.cluster.arn), 3)}:aud" : [
+              "sts.amazonaws.com"
+            ]
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "policy-attach" {
+  role       = aws_iam_role.sa-role.name
+  policy_arn = aws_iam_policy.sa-policy.arn
 }
